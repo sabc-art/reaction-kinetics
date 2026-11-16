@@ -2,6 +2,7 @@
 
 Run with:  python -m streamlit run kinetics.py
 """
+import base64
 import io
 import re
 from fractions import Fraction
@@ -10,6 +11,7 @@ from math import gcd
 import numpy as np
 import pandas as pd
 import streamlit as st
+import matplotlib
 import matplotlib.pyplot as plt
 
 
@@ -134,34 +136,273 @@ def default_table():
 
 
 # =====================================================================
+# DESIGN SETTINGS  (change these to restyle the whole app)
+# =====================================================================
+
+PRIMARY = "#0f766e"      # main color (teal)
+SECONDARY = "#1d4ed8"    # second color (blue)
+ACCENT = "#f97316"       # highlight color (orange)
+PALETTE = [PRIMARY, SECONDARY, ACCENT, "#a855f7", "#e11d48", "#64748b"]  # graph colors
+AUTHOR = "Made by buldak kalbonara"              # put your name here, for example "Made by Juan"
+
+CSS = """
+<style>
+.block-container {padding-top: 2rem; max-width: 1150px;}
+footer {visibility: hidden;}
+
+/* Top banner */
+.hero {
+    background: linear-gradient(135deg, __PRIMARY__ 0%, __SECONDARY__ 100%);
+    color: white; padding: 1.7rem 1.9rem; border-radius: 20px;
+    position: relative; overflow: hidden;
+    margin-bottom: 1.2rem; box-shadow: 0 8px 24px rgba(15, 118, 110, 0.25);
+}
+.hero-title {font-size: 2.2rem; font-weight: 800; line-height: 1.15;}
+.hero-sub {font-size: 1.05rem; opacity: 0.93; margin-top: 0.45rem;}
+.chips {margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.5rem;}
+.chips span {
+    background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.4);
+    padding: 0.2rem 0.8rem; border-radius: 999px; font-size: 0.85rem;
+}
+
+/* Tabs */
+button[data-baseweb="tab"] {font-size: 1.05rem; font-weight: 600; padding: 0.6rem 1.1rem;}
+button[data-baseweb="tab"][aria-selected="true"] {color: __PRIMARY__;}
+div[data-baseweb="tab-highlight"] {background-color: __PRIMARY__;}
+
+/* Cards and numbers (work in light and dark mode) */
+[data-testid="stMetric"] {
+    background: rgba(128,128,128,0.08); border: 1px solid rgba(128,128,128,0.25);
+    border-left: 6px solid __PRIMARY__; padding: 0.9rem 1.1rem; border-radius: 14px;
+}
+[data-testid="stVerticalBlockBorderWrapper"] {border-radius: 16px;}
+h3 {border-left: 5px solid __ACCENT__; padding-left: 0.6rem;}
+
+/* Buttons */
+.stDownloadButton button, .stButton button {
+    border-radius: 10px; font-weight: 600; border: 1px solid __PRIMARY__;
+}
+.stDownloadButton button:hover, .stButton button:hover {
+    background: __PRIMARY__; color: white; border-color: __PRIMARY__;
+}
+
+/* Graphics */
+.stApp {background-image: url("__MOLECULES__"); background-attachment: fixed;}
+@keyframes floaty {0%, 100% {transform: translateY(0);} 50% {transform: translateY(-14px);}}
+.bubble {position: absolute; border-radius: 50%; background: rgba(255,255,255,0.10);
+         animation: floaty 7s ease-in-out infinite; pointer-events: none;}
+.hero-inner {position: relative; z-index: 1; display: flex; align-items: center;
+             justify-content: space-between; gap: 1.2rem;}
+.hero-flask {width: 150px; flex-shrink: 0;}
+@media (max-width: 700px) {.hero-flask {display: none;} .hero-title {font-size: 1.7rem;}}
+.tabbanner {
+    display: flex; align-items: center; gap: 1rem; padding: 0.8rem 1.1rem; margin-bottom: 1rem;
+    border-radius: 16px; border: 1px solid rgba(128,128,128,0.2);
+    background: linear-gradient(90deg, rgba(15,118,110,0.14), rgba(29,78,216,0.07));
+}
+.tabbanner img {width: 56px; height: 56px; flex-shrink: 0;}
+.tb-title {font-size: 1.25rem; font-weight: 800;}
+.tb-text {opacity: 0.8; font-size: 0.95rem;}
+.stickers {text-align: center; padding-top: 1rem;}
+.stickers span {display: inline-block; font-size: 1.7rem; margin: 0 0.35rem; transition: transform 0.2s;}
+.stickers span:hover {transform: rotate(-14deg) scale(1.3);}
+
+.footer-note {text-align: center; opacity: 0.65; font-size: 0.85rem; padding: 1.5rem 0 0.5rem;}
+</style>
+"""
+
+
+# ---------------------------------------------------------------------
+# GRAPHICS (small drawings written as SVG, so no image files are needed)
+# ---------------------------------------------------------------------
+
+# Animated lab flask: waves move and bubbles rise
+FLASK_SVG = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 230" width="200" height="230">
+<defs><clipPath id="c"><path d="M80 24 H120 V82 L170 172 Q182 200 156 202 H44 Q18 200 30 172 L80 82 Z"/></clipPath></defs>
+<g clip-path="url(#c)">
+<rect x="0" y="0" width="200" height="230" fill="rgba(255,255,255,0.10)"/>
+<path d="M-200 128 q25 -12 50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 V230 H-200 Z" fill="#99f6e4" opacity="0.9">
+<animateTransform attributeName="transform" type="translate" from="0 0" to="100 0" dur="3s" repeatCount="indefinite"/></path>
+<path d="M-200 140 q25 12 50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 V230 H-200 Z" fill="#2dd4bf" opacity="0.75">
+<animateTransform attributeName="transform" type="translate" from="100 0" to="0 0" dur="4s" repeatCount="indefinite"/></path>
+<circle cx="75" cy="190" r="6" fill="white" opacity="0.8"><animate attributeName="cy" from="195" to="120" dur="2.6s" repeatCount="indefinite"/><animate attributeName="opacity" from="0.9" to="0" dur="2.6s" repeatCount="indefinite"/></circle>
+<circle cx="105" cy="185" r="4" fill="white" opacity="0.8"><animate attributeName="cy" from="195" to="115" dur="2.1s" begin="0.7s" repeatCount="indefinite"/><animate attributeName="opacity" from="0.9" to="0" dur="2.1s" begin="0.7s" repeatCount="indefinite"/></circle>
+<circle cx="130" cy="188" r="5" fill="white" opacity="0.8"><animate attributeName="cy" from="195" to="125" dur="3s" begin="1.2s" repeatCount="indefinite"/><animate attributeName="opacity" from="0.9" to="0" dur="3s" begin="1.2s" repeatCount="indefinite"/></circle>
+<circle cx="95" cy="176" r="3" fill="white" opacity="0.8"><animate attributeName="cy" from="190" to="110" dur="1.8s" begin="0.3s" repeatCount="indefinite"/><animate attributeName="opacity" from="0.9" to="0" dur="1.8s" begin="0.3s" repeatCount="indefinite"/></circle>
+</g>
+<path d="M80 24 H120 V82 L170 172 Q182 200 156 202 H44 Q18 200 30 172 L80 82 Z" fill="none" stroke="white" stroke-width="6" stroke-linejoin="round"/>
+<line x1="72" y1="24" x2="128" y2="24" stroke="white" stroke-width="7" stroke-linecap="round"/>
+<circle cx="100" cy="8" r="4" fill="white" opacity="0.7"><animate attributeName="cy" from="20" to="-6" dur="2.4s" repeatCount="indefinite"/><animate attributeName="opacity" from="0.8" to="0" dur="2.4s" repeatCount="indefinite"/></circle>
+</svg>"""
+
+# Faint molecules for the page background (water, benzene ring, CO2)
+MOLECULE_TILE = """<svg xmlns="http://www.w3.org/2000/svg" width="260" height="260" viewBox="0 0 260 260">
+<g fill="none" stroke="#94a3b8" stroke-width="2" opacity="0.22" stroke-linecap="round">
+<polygon points="70,40 94,54 94,82 70,96 46,82 46,54"/>
+<circle cx="70" cy="40" r="5"/><circle cx="94" cy="54" r="5"/><circle cx="94" cy="82" r="5"/>
+<circle cx="70" cy="96" r="5"/><circle cx="46" cy="82" r="5"/><circle cx="46" cy="54" r="5"/>
+<line x1="190" y1="150" x2="168" y2="176"/><line x1="190" y1="150" x2="214" y2="174"/>
+<circle cx="190" cy="150" r="11"/><circle cx="165" cy="180" r="7"/><circle cx="217" cy="178" r="7"/>
+<line x1="40" y1="200" x2="80" y2="200"/><line x1="80" y1="200" x2="120" y2="200"/>
+<circle cx="40" cy="200" r="9"/><circle cx="80" cy="200" r="12"/><circle cx="120" cy="200" r="9"/>
+<circle cx="170" cy="40" r="4"/><circle cx="215" cy="95" r="3"/><circle cx="130" cy="120" r="3"/>
+</g></svg>"""
+
+# Small icons shown at the top of each tab
+ICON_FLASK = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<path d="M26 6 H38 V24 L54 52 Q58 60 48 60 H16 Q6 60 10 52 L26 24 Z" fill="#ccfbf1" stroke="{PRIMARY}" stroke-width="3.5" stroke-linejoin="round"/>
+<path d="M16 42 Q24 37 32 42 T48 42 L54 52 Q58 60 48 60 H16 Q6 60 10 52 Z" fill="{PRIMARY}"/>
+<circle cx="26" cy="50" r="2.6" fill="white"><animate attributeName="cy" from="54" to="38" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" from="1" to="0" dur="2s" repeatCount="indefinite"/></circle>
+<circle cx="37" cy="52" r="2" fill="white"><animate attributeName="cy" from="55" to="38" dur="2.6s" begin="0.6s" repeatCount="indefinite"/><animate attributeName="opacity" from="1" to="0" dur="2.6s" begin="0.6s" repeatCount="indefinite"/></circle>
+<line x1="22" y1="6" x2="42" y2="6" stroke="{PRIMARY}" stroke-width="4" stroke-linecap="round"/></svg>"""
+
+ICON_CHART = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<rect x="5" y="5" width="54" height="54" rx="10" fill="none" stroke="{SECONDARY}" stroke-width="3.5"/>
+<path d="M13 16 V50 H52" fill="none" stroke="{SECONDARY}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M16 20 Q26 44 52 46" fill="none" stroke="{ACCENT}" stroke-width="3.5" stroke-linecap="round"/>
+<circle cx="19" cy="26" r="3.4" fill="{SECONDARY}"/><circle cx="28" cy="38" r="3.4" fill="{SECONDARY}"/>
+<circle cx="38" cy="43" r="3.4" fill="{SECONDARY}"/><circle cx="49" cy="46" r="3.4" fill="{SECONDARY}"/></svg>"""
+
+ICON_FLAME = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<path d="M32 3 C35 16 51 22 51 41 C51 53 43 61 32 61 C21 61 13 53 13 41 C13 32 18 28 22 21 C24 28 27 29 29 27 C30 21 28 11 32 3 Z" fill="#f97316"/>
+<path d="M32 29 C33 38 42 40 42 48 C42 54 38 58 32 58 C26 58 22 54 22 48 C22 41 30 38 32 29 Z" fill="#fde047">
+<animate attributeName="opacity" values="1;0.7;1" dur="1.2s" repeatCount="indefinite"/></path></svg>"""
+
+
+def svg_uri(svg):
+    """Turn an SVG drawing into a link that can be used inside a web page."""
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+
+
+def apply_style():
+    """Add the custom colors, cards and tab styling."""
+    css = CSS.replace("__PRIMARY__", PRIMARY).replace("__SECONDARY__", SECONDARY)
+    css = css.replace("__ACCENT__", ACCENT)
+    css = css.replace("__MOLECULES__", svg_uri(MOLECULE_TILE))
+    st.markdown(css, unsafe_allow_html=True)
+
+
+def setup_plots():
+    """Give every graph the same clean look."""
+    plt.rcParams.update({
+        "axes.prop_cycle": matplotlib.cycler(color=PALETTE),
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.grid": True,
+        "grid.alpha": 0.25,
+        "grid.linestyle": "--",
+        "lines.linewidth": 2.4,
+        "font.size": 11,
+        "axes.titleweight": "bold",
+        "axes.labelcolor": "#334155",
+        "legend.frameon": False,
+        "figure.facecolor": "white",
+        "axes.facecolor": "white",
+        "savefig.facecolor": "white",
+    })
+
+
+def hero():
+    """The colorful banner at the top of the page, with an animated flask."""
+    bubbles = (
+        '<span class="bubble" style="width:120px;height:120px;left:-30px;top:-40px;"></span>'
+        '<span class="bubble" style="width:70px;height:70px;left:38%;bottom:-25px;animation-delay:1.5s;"></span>'
+        '<span class="bubble" style="width:46px;height:46px;left:62%;top:12px;animation-delay:3s;"></span>'
+        '<span class="bubble" style="width:90px;height:90px;right:150px;bottom:-35px;animation-delay:2s;"></span>'
+    )
+    chips = "".join(f"<span>{t}</span>" for t in [
+        "0th · 1st · 2nd order", "Half-life", "Fit your own data",
+        "Combustion rates", "Scientific notation"])
+    html = (
+        '<div class="hero">' + bubbles +
+        '<div class="hero-inner"><div>'
+        '<div class="hero-title">🧪 Reaction Kinetics Lab</div>'
+        '<div class="hero-sub">Simulate reactions, fit your lab data, and calculate '
+        'reaction rates, all in your browser.</div>'
+        f'<div class="chips">{chips}</div></div>'
+        f'<img class="hero-flask" src="{svg_uri(FLASK_SVG)}" alt="Animated lab flask"/>'
+        '</div></div>'
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def tab_banner(icon_svg, title, text):
+    """A small header with an icon at the top of each tab."""
+    st.markdown(
+        f'<div class="tabbanner"><img src="{svg_uri(icon_svg)}" alt=""/>'
+        f'<div><div class="tb-title">{title}</div><div class="tb-text">{text}</div></div></div>',
+        unsafe_allow_html=True)
+
+
+def how_to_use():
+    """A short guide that opens and closes."""
+    with st.expander("ℹ️ How to use this app"):
+        st.markdown(
+            """
+**1. Pick your units** at the top (they are used in every tab).
+
+**🧪 Simulator:** enter k and C0 to compare 0th, 1st and 2nd order reactions
+and see their half-lives.
+
+**📈 Fit my data:** type your experiment results. The app finds the best reaction
+order and the rate constant k.
+
+**🔥 Reaction rates:** type a reaction like `A + B -> C`, or pick combustion and
+type a fuel like `C3H8`. Choose elementary or complex, add your mixtures, and get the
+rate of consumption and formation of every species.
+
+**Tip:** you can type scientific notation as `2.5e-3` or `2.5*10^-3`.
+            """
+        )
+
+
+def footer():
+    text = "Built with Python and Streamlit"
+    if AUTHOR.strip():
+        text = f"{AUTHOR.strip()} · " + text
+    st.markdown(
+        '<div class="stickers"><span>⚗️</span><span>🔬</span><span>🧬</span>'
+        '<span>🧫</span><span>🔥</span><span>📈</span></div>'
+        f'<div class="footer-note">{text}</div>',
+        unsafe_allow_html=True)
+
+
+# =====================================================================
 # TAB 1: SIMULATOR
 # =====================================================================
 
 def simulator_tab(conc_unit, time_unit):
-    st.write("Enter a rate constant and starting concentration "
-             "to compare the three reaction orders.")
+    left, right = st.columns([5, 7], gap="large")
 
-    k = sci_input("Rate constant k", 1.0, -1, key="sim_k")
-    C0 = sci_input(f"Initial concentration C0 ({conc_unit})", 1.0, 0, key="sim_c0")
-    t_max = st.slider(f"Time to simulate ({time_unit})", 1, 1000, 50)
+    with left:
+        with st.container(border=True):
+            st.subheader("⚙️ Inputs")
+            st.caption("Enter a rate constant and a starting concentration "
+                       "to compare the three reaction orders.")
+            k = sci_input("Rate constant k", 1.0, -1, key="sim_k")
+            C0 = sci_input(f"Initial concentration C0 ({conc_unit})", 1.0, 0, key="sim_c0")
+            t_max = st.slider(f"Time to simulate ({time_unit})", 1, 1000, 50)
 
     if k <= 0 or C0 <= 0:
-        st.error("k and C0 must both be greater than zero.")
+        right.error("k and C0 must both be greater than zero.")
         return
 
     t = np.linspace(0, t_max, 300)
     curves = concentration_curves(k, C0, t)
 
-    fig, ax = plt.subplots()
-    for order, C in curves.items():
-        ax.plot(t, C, label=f"{order}{['th', 'st', 'nd'][order]} order")
-    ax.set_xlabel(f"Time ({time_unit})")
-    ax.set_ylabel(f"Concentration ({conc_unit})")
-    ax.legend()
-    st.pyplot(fig)
-    download_buttons(fig, "kinetics_simulation", key="sim")
+    with right:
+        with st.container(border=True):
+            st.subheader("📉 Concentration vs time")
+            fig, ax = plt.subplots()
+            for order, C in curves.items():
+                ax.plot(t, C, label=f"{order}{['th', 'st', 'nd'][order]} order")
+            ax.set_xlabel(f"Time ({time_unit})")
+            ax.set_ylabel(f"Concentration ({conc_unit})")
+            ax.legend()
+            st.pyplot(fig)
+            download_buttons(fig, "kinetics_simulation", key="sim")
 
-    st.subheader("Half-life")
+    st.subheader("⏱️ Half-life")
     lives = half_lives(k, C0)
     c0, c1, c2 = st.columns(3)
     c0.metric("0th order", f"{lives[0]:.4g} {time_unit}")
@@ -219,7 +460,7 @@ def fit_tab(conc_unit, time_unit):
         "Slope": [f"{f['slope']:.4g}" for f in fits],
         "R²": [f"{f['r2']:.4f}" for f in fits],
     })
-    st.subheader("Results")
+    st.subheader("📊 Results")
     st.dataframe(results, hide_index=True)
 
     # Best fit = highest R², but k must be positive to make sense
@@ -491,7 +732,7 @@ def rates_tab(conc_unit, time_unit):
     key_text = "_".join(species + [str(c) for c in coefs])
 
     # ---- 2. The rate law -------------------------------------------------
-    st.subheader("Rate law")
+    st.subheader("📐 Rate law")
     law = st.radio("Reaction kind", ["Elementary", "Complex"], horizontal=True)
     if law == "Elementary":
         orders = [float(c) for c in coefs[:n_react]]
@@ -535,7 +776,7 @@ def rates_tab(conc_unit, time_unit):
         return
 
     # ---- 4. The mixtures --------------------------------------------------
-    st.subheader("Mixtures")
+    st.subheader("🧫 Mixtures")
     st.write(f"Each row is one mixture. Concentrations are in {conc_unit}. Scientific notation "
              "works: 2.5e-3 or 2.5*10^-3. Add rows with the + at the bottom.")
     default_rows = []
@@ -577,13 +818,13 @@ def rates_tab(conc_unit, time_unit):
             else:
                 row[f"Formation of {s}"] = f"{nu[i] * r:.4g}"
         table_rows.append(row)
-    st.subheader("Rates at the starting concentrations")
+    st.subheader("⚡ Rates at the starting concentrations")
     st.dataframe(pd.DataFrame(table_rows), hide_index=True)
     st.caption(f"All rates are in {rate_unit(conc_unit, time_unit)}.  Reaction rate r = rate of consumption of a "
                "reactant ÷ its coefficient = rate of formation of a product ÷ its coefficient.")
 
     # ---- 6. Concentration vs time ---------------------------------------------
-    st.subheader("Concentration vs time (batch reactor)")
+    st.subheader("📉 Concentration vs time (batch reactor)")
     choice = st.selectbox("Mixture to simulate", names)
     t_end = sci_input(f"Simulation time ({time_unit})", 1.0, 1, key="rate_tend")
     if t_end <= 0:
@@ -611,8 +852,10 @@ def rates_tab(conc_unit, time_unit):
 # =====================================================================
 
 def main():
-    st.set_page_config(page_title="Reaction Kinetics", page_icon="🧪")
-    st.title("Reaction Kinetics Simulator")
+    st.set_page_config(page_title="Reaction Kinetics Lab", page_icon="🧪", layout="wide")
+    apply_style()
+    setup_plots()
+    hero()
 
     # Units are chosen once and used in every tab.
     col1, col2 = st.columns(2)
@@ -623,13 +866,19 @@ def main():
                "the app does not convert your numbers, so enter k and your data in the "
                "units you choose here.")
 
-    tab1, tab2, tab3 = st.tabs(["Simulator", "Fit my data", "Reaction rates"])
+    tab1, tab2, tab3 = st.tabs(["🧪 Simulator", "📈 Fit my data", "🔥 Reaction rates"])
     with tab1:
+        tab_banner(ICON_FLASK, "Simulator", "Compare 0th, 1st and 2nd order reactions side by side.")
         simulator_tab(conc_unit, time_unit)
     with tab2:
+        tab_banner(ICON_CHART, "Fit my data", "Type your lab results and find the best reaction order and k.")
         fit_tab(conc_unit, time_unit)
     with tab3:
+        tab_banner(ICON_FLAME, "Reaction rates", "Rates of consumption and formation for reactions and combustion.")
         rates_tab(conc_unit, time_unit)
+
+    how_to_use()
+    footer()
 
 
 if __name__ == "__main__":
